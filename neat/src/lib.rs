@@ -1,6 +1,7 @@
-pub fn add(left: usize, right: usize) -> usize {
-    left + right
-}
+mod gene;
+mod config;
+mod activation;
+mod aggregation;
 
 #[cfg(test)]
 mod tests {
