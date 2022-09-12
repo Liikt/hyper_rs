@@ -172,22 +172,40 @@ impl Genome {
         if node.is_none() {
             return;
         }
-        let node = *node.unwrap();
+        let node = node.unwrap();
+
+        for conn_id in self.nodes.get(node).unwrap().src_connections.iter() {
+            let conn = self.connections.get(conn_id).unwrap();
+            self.nodes.get_mut(&conn.get_src()).unwrap().dst_connections
+                .remove(conn_id);
+            self.connections.remove(conn_id);
+        }
+
+        for conn_id in self.nodes.get(node).unwrap().dst_connections.iter() {
+            let conn = self.connections.get(conn_id).unwrap();
+            self.nodes.get_mut(&conn.get_dst()).unwrap().dst_connections
+                .remove(conn_id);
+            self.connections.remove(conn_id);
+        }
+
+        self.nodes.remove(node);
     }
 
-    fn mutate_del_conn(&mut self) {}
+    fn mutate_del_conn(&mut self) {
+        let mut rng = thread_rng();
+        let (id, conn) = self.connections.iter().choose(&mut rng).unwrap();
+        self.nodes.get_mut(&conn.get_src()).unwrap().dst_connections.remove(id);
+        self.nodes.get_mut(&conn.get_dst()).unwrap().src_connections.remove(id);
+        self.connections.remove(id);
+    }
 
     pub fn mutate(&mut self) {
         if config::SINGLE_MUTATION {
-            let div = (
-                config::NODE_ADD_PROB + config::NODE_DEL_PROB +
-                config::CONN_ADD_PROB + config::CONN_DEL_PROB
-            ).max(1.0);
-
-            let node_add_prob = config::NODE_ADD_PROB;
+            let node_add_prob =                 config::NODE_ADD_PROB;
             let node_del_prob = node_add_prob + config::NODE_DEL_PROB;
             let conn_add_prob = node_del_prob + config::CONN_ADD_PROB;
             let conn_del_prob = conn_add_prob + config::CONN_DEL_PROB;
+            let div = conn_del_prob.max(1.0);
 
             let r = random::<f64>() % 1.0;
             if r < node_add_prob/div {
@@ -221,5 +239,48 @@ impl Genome {
         for node in self.nodes.values_mut() {
             (*node).mutate();
         }
+    }
+
+    pub fn distance(&self, other: &Self) -> f64 {
+        let mut node_distance = 0.0;
+        if !self.nodes.is_empty() || !other.nodes.is_empty() {
+            let mut disjoined_nodes = 0.0;
+            for n in other.nodes.keys().into_iter() {
+                if !self.nodes.contains_key(n) {
+                    disjoined_nodes += 1.0;
+                }
+            }
+            for (id, node) in self.nodes.into_iter() {
+                match other.nodes.get(&id) {
+                    None => { disjoined_nodes += 1.0; }
+                    Some(n2) => { node_distance += node.distance(n2); }
+                }
+            }
+            let max_nodes = self.nodes.len().max(other.nodes.len());
+            node_distance = (node_distance + config::COMPAT_DISJOINT_COEFFICIENT 
+                * disjoined_nodes) / max_nodes;
+        }
+
+        let mut connection_distance = 0.0;
+        if !self.connections.is_empty() || !other.connections.is_empty() {
+            let mut disjoined_connections = 0.0;
+            for c in other.connections.keys().into_iter() {
+                if !self.connections.contains_key(c) {
+                    connection_distance += 1.0;
+                }
+            }
+            for (id, conn) in self.connections.into_iter() {
+                match other.connections.get(&id) {
+                    None => { disjoined_connections += 1.0; }
+                    Some(c2) => { connection_distance += conn.distance(c2); }
+                }
+            }
+            let max_conn = self.connections.len().max(other.connections.len());
+            connection_distance = (connection_distance + 
+                config::COMPAT_DISJOINT_COEFFICIENT * disjoined_connections) / 
+                max_conn;
+        }
+
+        node_distance + connection_distance
     }
 }
